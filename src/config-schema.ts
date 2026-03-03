@@ -8,13 +8,13 @@ const allowFromSchema = z.union([z.array(z.string()), z.string()]);
 
 const YunjiaAccountSchema = z.object({
   enabled: z.boolean().optional(),
-  name: z.string().optional(),
   idmBaseUrl: z.string().optional(),
+  clientId: z.string().optional(),
+  clientSecret: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
   tenantId: z.string().optional(),
-  clientId: z.string().optional(),
-  clientSecret: z.string().optional(),
+  name: z.string().optional(),
   accessToken: z.string().optional(),
   refreshToken: z.string().optional(),
   socketIoMode: YunjiaSocketIoModeSchema.optional(),
@@ -31,17 +31,17 @@ const YunjiaConfigSchema = YunjiaAccountSchema.extend({
 
 const topLevelHints = {
   enabled: { label: "Enable Yunjia" },
-  name: { label: "Account Name" },
   idmBaseUrl: {
     label: "IDM Base URL",
     help: "Required. Example: https://passport.example.com",
     placeholder: "https://passport.example.com",
   },
+  clientId: { label: "Client ID", help: "Required." },
+  clientSecret: { label: "Client Secret", sensitive: true, help: "Required." },
   username: { label: "Username" },
   password: { label: "Password", sensitive: true },
   tenantId: { label: "Tenant ID", placeholder: "default" },
-  clientId: { label: "Client ID", help: "Required." },
-  clientSecret: { label: "Client Secret", sensitive: true, help: "Required." },
+  name: { label: "Account Name" },
   accessToken: {
     label: "Access Token",
     sensitive: true,
@@ -69,13 +69,13 @@ const topLevelHints = {
 
 const accountHintKeys = [
   "enabled",
-  "name",
   "idmBaseUrl",
+  "clientId",
+  "clientSecret",
   "username",
   "password",
   "tenantId",
-  "clientId",
-  "clientSecret",
+  "name",
   "accessToken",
   "refreshToken",
   "socketIoMode",
@@ -97,4 +97,3 @@ export const yunjiaChannelConfigSchema = {
     ...accountHints,
   },
 };
-

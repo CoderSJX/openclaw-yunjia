@@ -14,6 +14,7 @@ import {
   listYunjiaAccountIds,
   resolveYunjiaAccount,
 } from "./accounts.js";
+import { yunjiaChannelConfigSchema } from "./config-schema.js";
 import { getYunjiaRuntime } from "./runtime.js";
 import { createYunjiaSdkClient } from "./sdk-loader.js";
 import {
@@ -276,6 +277,7 @@ export const yunjiaPlugin: ChannelPlugin<ResolvedYunjiaAccount> = {
   reload: {
     configPrefixes: ["channels.yunjia"],
   },
+  configSchema: yunjiaChannelConfigSchema,
 
   config: {
     listAccountIds: (cfg) => listYunjiaAccountIds(cfg),

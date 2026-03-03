@@ -75,7 +75,7 @@ Required config: `idmBaseUrl`, `clientId`, `clientSecret`, and either
 | `sdkPath` | 本地路径（可选） | 指定本地 SDK 目录/文件。设置后优先于 `sdkModule`。适合本地联调。 |
 | `sdkModule` | npm 包名（默认 `yunjia-chat-sdk`） | 当未设置 `sdkPath` 时，按模块名加载 SDK。 |
 | `dmPolicy` | `pairing` / `allowlist` / `open` / `disabled`（默认 `pairing`） | 私聊触发策略：`pairing` 未授权用户走配对；`allowlist` 仅白名单用户可触发；`open` 任意用户可触发；`disabled` 私聊全部禁用。 |
-| `allowFrom` | 字符串数组，或逗号分隔字符串（默认空） | 私聊允许列表。对 `allowlist`/`pairing` 生效；为空时 `allowlist` 会阻止所有未匹配用户。 |
+| `allowFrom` | 字符串数组，或逗号分隔字符串（默认空） | 私聊允许列表。对 `allowlist`/`pairing` 生效；为空时 `allowlist` 会阻止所有未匹配用户。可视化页面建议使用字符串数组。 |
 | `defaultTo` | 目标字符串（如 `user:1001`） | 主动发送消息时若未提供 `to`，会使用该默认目标。 |
 | `accounts` | 对象（键为账号 ID） | 多账号配置入口。每个账号可覆盖上述字段。 |
 

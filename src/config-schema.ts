@@ -4,7 +4,9 @@ import { z } from "zod";
 const YunjiaDmPolicySchema = z.enum(["pairing", "allowlist", "open", "disabled"]);
 const YunjiaSocketIoModeSchema = z.enum(["v2", "v4", "auto"]);
 
-const allowFromSchema = z.union([z.array(z.string()), z.string()]);
+// Gateway visual form does not support array|string unions inside map entries.
+// Keep UI schema as string[]; runtime parser still accepts comma-separated strings.
+const allowFromSchema = z.array(z.string());
 
 const YunjiaAccountSchema = z.object({
   enabled: z.boolean().optional(),

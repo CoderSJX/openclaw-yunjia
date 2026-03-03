@@ -153,6 +153,9 @@ export function isYunjiaAccountConfigured(account: ResolvedYunjiaAccount): boole
   if (!account.idmBaseUrl) {
     return false;
   }
+  if (!account.clientId || !account.clientSecret) {
+    return false;
+  }
   if (account.accessToken) {
     return true;
   }

@@ -373,6 +373,12 @@ export const yunjiaPlugin: ChannelPlugin<ResolvedYunjiaAccount> = {
       if (!account.idmBaseUrl) {
         warnings.push("- Yunjia: idmBaseUrl is missing.");
       }
+      if (!account.clientId) {
+        warnings.push("- Yunjia: clientId is missing.");
+      }
+      if (!account.clientSecret) {
+        warnings.push("- Yunjia: clientSecret is missing.");
+      }
       return warnings;
     },
   },

@@ -17,6 +17,8 @@ describe("yunjia accounts", () => {
       channels: {
         yunjia: {
           idmBaseUrl: "https://idm.example.com",
+          clientId: "client-1",
+          clientSecret: "secret-1",
           accounts: {
             robot: {
               idmBaseUrl: "https://idm2.example.com",
@@ -35,6 +37,8 @@ describe("yunjia accounts", () => {
         yunjia: {
           idmBaseUrl: "https://idm.example.com",
           tenantId: "default",
+          clientId: "client-1",
+          clientSecret: "secret-1",
           accounts: {
             robot: {
               tenantId: "tenant-a",
@@ -65,5 +69,32 @@ describe("yunjia accounts", () => {
 
     const account = resolveYunjiaAccount(cfg, DEFAULT_ACCOUNT_ID);
     expect(isYunjiaAccountConfigured(account)).toBe(false);
+  });
+
+  it("is not configured when clientId or clientSecret is missing", () => {
+    const cfgMissingClientId = {
+      channels: {
+        yunjia: {
+          idmBaseUrl: "https://idm.example.com",
+          clientSecret: "secret-1",
+          username: "robot",
+          password: "secret",
+        },
+      },
+    } as OpenClawConfig;
+
+    const cfgMissingClientSecret = {
+      channels: {
+        yunjia: {
+          idmBaseUrl: "https://idm.example.com",
+          clientId: "client-1",
+          username: "robot",
+          password: "secret",
+        },
+      },
+    } as OpenClawConfig;
+
+    expect(isYunjiaAccountConfigured(resolveYunjiaAccount(cfgMissingClientId))).toBe(false);
+    expect(isYunjiaAccountConfigured(resolveYunjiaAccount(cfgMissingClientSecret))).toBe(false);
   });
 });

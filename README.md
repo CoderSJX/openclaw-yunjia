@@ -24,6 +24,8 @@ openclaw plugins install ./openclaw-yunjia-plugin
     "yunjia": {
       "enabled": true,
       "idmBaseUrl": "https://passport.example.com",
+      "clientId": "your_client_id",
+      "clientSecret": "your_client_secret",
       "username": "bot_user",
       "password": "bot_password",
       "tenantId": "default"
@@ -40,6 +42,9 @@ The plugin resolves Yunjia SDK in this order:
 2. `channels.yunjia.sdkModule` (default: `yunjia-chat-sdk`)
 
 For public users, publish `yunjia-chat-sdk` to npm first so default install works without local paths.
+
+Required config: `idmBaseUrl`, `clientId`, `clientSecret`, and either
+`accessToken` or (`username` + `password`).
 
 ## Message behavior
 

@@ -1,0 +1,9 @@
+{
+  "id": "yunjia",
+  "channels": ["yunjia"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

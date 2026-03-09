@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   createReplyPrefixOptions,
   DEFAULT_ACCOUNT_ID,
@@ -20,6 +21,7 @@ import { createYunjiaSdkClient } from "./sdk-loader.js";
 import {
   looksLikeYunjiaTarget,
   normalizeYunjiaMessagingTarget,
+  sendDynamicMarkdownChunkToYunjia,
   sendReplyToYunjiaChannel,
   sendTextToYunjia,
 } from "./send.js";
@@ -46,6 +48,14 @@ const activeClients = new Map<string, YunjiaChatSdkInstance>();
 function resolveRuntimeAccountId(accountId?: string | null): string {
   const normalized = accountId?.trim();
   return normalized || DEFAULT_ACCOUNT_ID;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 function parseCreatedAt(value: string | number | undefined): number | undefined {
@@ -227,24 +237,98 @@ async function processInboundMessage(params: {
     accountId: route.accountId,
   });
 
+  const parentId = normalizeOptionalString(message.body?.id) ?? `${channelId}-${Date.now()}`;
+  const roundId = normalizeOptionalString(message.body?.roundId) ?? parentId;
+  const sessionId = normalizeOptionalString(message.body?.sessionId) ?? route.sessionKey;
+  const streamId = randomUUID();
+  const enterprise = normalizeOptionalString(message.headers?.enterprise) ?? account.tenantId;
+  const tracer = normalizeOptionalString(message.headers?.tracer) ?? streamId;
+
+  let streamMode: "dynamic-markdown" | "plain-text" = "dynamic-markdown";
+  let streamStarted = false;
+  let lastChunkIndex = 0;
+
+  const sendFallbackText = async (replyText: string) => {
+    const sdk = requireRunningClient(accountId);
+    await sendReplyToYunjiaChannel({
+      sdk,
+      channelId,
+      chatType,
+      text: replyText,
+      enterpriseId: account.tenantId,
+    });
+  };
+
+  const sendStreamChunk = async (replyText: string) => {
+    if (streamMode === "plain-text") {
+      await sendFallbackText(replyText);
+      return;
+    }
+
+    const sdk = requireRunningClient(accountId);
+    if (!streamStarted) {
+      const sentStart = await sendDynamicMarkdownChunkToYunjia({
+        sdk,
+        chunk: {
+          channelId,
+          parent: parentId,
+          roundId,
+          sessionId,
+          streamId,
+          chunk: "",
+          chunkIndex: 0,
+          streamStatus: "start",
+          enterprise,
+          tracer,
+        },
+      });
+      if (!sentStart) {
+        streamMode = "plain-text";
+        await sendFallbackText(replyText);
+        return;
+      }
+      streamStarted = true;
+    }
+
+    lastChunkIndex += 1;
+    const sentChunk = await sendDynamicMarkdownChunkToYunjia({
+      sdk,
+      chunk: {
+        channelId,
+        parent: parentId,
+        roundId,
+        sessionId,
+        streamId,
+        chunk: replyText,
+        chunkIndex: lastChunkIndex,
+        streamStatus: "continue",
+        enterprise,
+        tracer,
+      },
+    });
+    if (!sentChunk) {
+      streamMode = "plain-text";
+      await sendFallbackText(replyText);
+    }
+  };
+
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx: inboundContext,
     cfg,
     dispatcherOptions: {
       ...prefixOptions,
       deliver: async (payload) => {
-        const replyText = (payload.text ?? "").trim();
-        if (!replyText) {
+        const replyText = payload.text ?? "";
+        if (!replyText.trim()) {
           return;
         }
-        const sdk = requireRunningClient(accountId);
-        await sendReplyToYunjiaChannel({
-          sdk,
-          channelId,
-          chatType,
-          text: replyText,
-          enterpriseId: account.tenantId,
-        });
+        try {
+          await sendStreamChunk(replyText);
+        } catch (error) {
+          streamMode = "plain-text";
+          log?.warn?.(`Yunjia dynamic markdown stream failed, fallback to text: ${String(error)}`);
+          await sendFallbackText(replyText);
+        }
         setStatus({ lastOutboundAt: Date.now(), lastError: null });
       },
       onError: (error, info) => {
@@ -253,6 +337,29 @@ async function processInboundMessage(params: {
     },
     replyOptions: { onModelSelected },
   });
+
+  if (streamMode === "dynamic-markdown" && streamStarted) {
+    try {
+      const sdk = requireRunningClient(accountId);
+      await sendDynamicMarkdownChunkToYunjia({
+        sdk,
+        chunk: {
+          channelId,
+          parent: parentId,
+          roundId,
+          sessionId,
+          streamId,
+          chunk: "",
+          chunkIndex: lastChunkIndex,
+          streamStatus: "end",
+          enterprise,
+          tracer,
+        },
+      });
+    } catch (error) {
+      log?.warn?.(`Yunjia dynamic markdown stream end failed: ${String(error)}`);
+    }
+  }
 }
 
 export const yunjiaPlugin: ChannelPlugin<ResolvedYunjiaAccount> = {

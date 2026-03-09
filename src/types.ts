@@ -57,6 +57,14 @@ export interface YunjiaInboundMessage {
   };
   body?: {
     id?: string;
+    parent?: string;
+    roundId?: string;
+    sessionId?: string;
+    streamId?: string;
+    chunk?: string;
+    chunkIndex?: number;
+    streamStatus?: string;
+    type?: string;
     channel?: string;
     message?: string;
     creationDate?: string | number;

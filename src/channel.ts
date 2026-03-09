@@ -21,7 +21,7 @@ import { createYunjiaSdkClient } from "./sdk-loader.js";
 import {
   looksLikeYunjiaTarget,
   normalizeYunjiaMessagingTarget,
-  sendDynamicMarkdownChunkToYunjia,
+  sendAgentStreamChunkToYunjia,
   sendReplyToYunjiaChannel,
   sendTextToYunjia,
 } from "./send.js";
@@ -240,13 +240,27 @@ async function processInboundMessage(params: {
   const parentId = normalizeOptionalString(message.body?.id) ?? `${channelId}-${Date.now()}`;
   const roundId = normalizeOptionalString(message.body?.roundId) ?? parentId;
   const sessionId = normalizeOptionalString(message.body?.sessionId) ?? route.sessionKey;
-  const streamId = randomUUID();
   const enterprise = normalizeOptionalString(message.headers?.enterprise) ?? account.tenantId;
-  const tracer = normalizeOptionalString(message.headers?.tracer) ?? streamId;
+  const incomingTracer = normalizeOptionalString(message.headers?.tracer);
 
-  let streamMode: "dynamic-markdown" | "plain-text" = "dynamic-markdown";
-  let streamStarted = false;
-  let lastChunkIndex = 0;
+  type StreamLane = "answer" | "thinking";
+  type StreamState = {
+    mode: "dynamic-markdown" | "plain-text";
+    started: boolean;
+    chunkIndex: number;
+    streamId: string;
+  };
+
+  const createStreamState = (): StreamState => ({
+    mode: "dynamic-markdown",
+    started: false,
+    chunkIndex: 0,
+    streamId: randomUUID(),
+  });
+  const streams: Record<StreamLane, StreamState> = {
+    answer: createStreamState(),
+    thinking: createStreamState(),
+  };
 
   const sendFallbackText = async (replyText: string) => {
     const sdk = requireRunningClient(accountId);
@@ -259,57 +273,100 @@ async function processInboundMessage(params: {
     });
   };
 
-  const sendStreamChunk = async (replyText: string) => {
-    if (streamMode === "plain-text") {
+  const sendStreamChunk = async (lane: StreamLane, replyText: string) => {
+    const state = streams[lane];
+    const streamType = lane === "thinking" ? "agent/thinking" : "agent/dynamic-markdown";
+    if (state.mode === "plain-text") {
       await sendFallbackText(replyText);
       return;
     }
 
     const sdk = requireRunningClient(accountId);
-    if (!streamStarted) {
-      const sentStart = await sendDynamicMarkdownChunkToYunjia({
+    const outboundUserId = normalizeOptionalString(sdk.getSession().uid);
+    if (!state.started) {
+      const sentStart = await sendAgentStreamChunkToYunjia({
         sdk,
         chunk: {
+          type: streamType,
           channelId,
           parent: parentId,
           roundId,
           sessionId,
-          streamId,
+          streamId: state.streamId,
           chunk: "",
           chunkIndex: 0,
           streamStatus: "start",
           enterprise,
-          tracer,
+          tracer: incomingTracer ?? state.streamId,
+          toUserId: chatType === "direct" ? senderId : undefined,
+          fromUserId: outboundUserId,
         },
       });
       if (!sentStart) {
-        streamMode = "plain-text";
+        state.mode = "plain-text";
         await sendFallbackText(replyText);
         return;
       }
-      streamStarted = true;
+      state.started = true;
     }
 
-    lastChunkIndex += 1;
-    const sentChunk = await sendDynamicMarkdownChunkToYunjia({
+    state.chunkIndex += 1;
+    const sentChunk = await sendAgentStreamChunkToYunjia({
       sdk,
       chunk: {
+        type: streamType,
         channelId,
         parent: parentId,
         roundId,
         sessionId,
-        streamId,
+        streamId: state.streamId,
         chunk: replyText,
-        chunkIndex: lastChunkIndex,
+        chunkIndex: state.chunkIndex,
         streamStatus: "continue",
         enterprise,
-        tracer,
+        tracer: incomingTracer ?? state.streamId,
+        toUserId: chatType === "direct" ? senderId : undefined,
+        fromUserId: outboundUserId,
       },
     });
     if (!sentChunk) {
-      streamMode = "plain-text";
+      state.mode = "plain-text";
       await sendFallbackText(replyText);
     }
+  };
+
+  const endStream = async (lane: StreamLane) => {
+    const state = streams[lane];
+    if (state.mode !== "dynamic-markdown" || !state.started) {
+      return;
+    }
+    const sdk = requireRunningClient(accountId);
+    const outboundUserId = normalizeOptionalString(sdk.getSession().uid);
+    const streamType = lane === "thinking" ? "agent/thinking" : "agent/dynamic-markdown";
+    const sentEnd = await sendAgentStreamChunkToYunjia({
+      sdk,
+      chunk: {
+        type: streamType,
+        channelId,
+        parent: parentId,
+        roundId,
+        sessionId,
+        streamId: state.streamId,
+        chunk: "",
+        chunkIndex: state.chunkIndex,
+        streamStatus: "end",
+        enterprise,
+        tracer: incomingTracer ?? state.streamId,
+        toUserId: chatType === "direct" ? senderId : undefined,
+        fromUserId: outboundUserId,
+      },
+    });
+    if (!sentEnd) {
+      state.mode = "plain-text";
+    }
+    state.started = false;
+    state.chunkIndex = 0;
+    state.streamId = randomUUID();
   };
 
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
@@ -323,9 +380,9 @@ async function processInboundMessage(params: {
           return;
         }
         try {
-          await sendStreamChunk(replyText);
+          await sendStreamChunk("answer", replyText);
         } catch (error) {
-          streamMode = "plain-text";
+          streams.answer.mode = "plain-text";
           log?.warn?.(`Yunjia dynamic markdown stream failed, fallback to text: ${String(error)}`);
           await sendFallbackText(replyText);
         }
@@ -335,29 +392,40 @@ async function processInboundMessage(params: {
         log?.error?.(`Yunjia ${info.kind} reply failed: ${String(error)}`);
       },
     },
-    replyOptions: { onModelSelected },
+    replyOptions: {
+      onModelSelected,
+      onReasoningStream: async (payload) => {
+        const thinkingText = payload.text ?? "";
+        if (!thinkingText.trim()) {
+          return;
+        }
+        try {
+          await sendStreamChunk("thinking", thinkingText);
+          setStatus({ lastOutboundAt: Date.now(), lastError: null });
+        } catch (error) {
+          streams.thinking.mode = "plain-text";
+          log?.warn?.(
+            `Yunjia thinking dynamic markdown stream failed, fallback to text: ${String(error)}`,
+          );
+          await sendFallbackText(thinkingText);
+          setStatus({ lastOutboundAt: Date.now(), lastError: null });
+        }
+      },
+      onReasoningEnd: async () => {
+        try {
+          await endStream("thinking");
+        } catch (error) {
+          log?.warn?.(`Yunjia thinking dynamic markdown stream end failed: ${String(error)}`);
+        }
+      },
+    },
   });
 
-  if (streamMode === "dynamic-markdown" && streamStarted) {
+  for (const lane of ["thinking", "answer"] as const) {
     try {
-      const sdk = requireRunningClient(accountId);
-      await sendDynamicMarkdownChunkToYunjia({
-        sdk,
-        chunk: {
-          channelId,
-          parent: parentId,
-          roundId,
-          sessionId,
-          streamId,
-          chunk: "",
-          chunkIndex: lastChunkIndex,
-          streamStatus: "end",
-          enterprise,
-          tracer,
-        },
-      });
+      await endStream(lane);
     } catch (error) {
-      log?.warn?.(`Yunjia dynamic markdown stream end failed: ${String(error)}`);
+      log?.warn?.(`Yunjia ${lane} dynamic markdown stream end failed: ${String(error)}`);
     }
   }
 }

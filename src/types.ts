@@ -125,6 +125,7 @@ export interface YunjiaChatSdkInstance {
   close(): void;
   getSession(): YunjiaChatSession;
   createDirectChannel(mateUserId: string): Promise<{ id: string; [key: string]: unknown }>;
+  sendMessage?(payload: unknown): void;
   sendTextDirect(options: { channelId: string; text: string; enterpriseId?: string }): void;
   sendTextGroup(options: {
     channelId: string;

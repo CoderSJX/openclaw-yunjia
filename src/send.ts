@@ -1,6 +1,7 @@
 import type { YunjiaChatSdkInstance } from "./types.js";
 
 const YUNJIA_CHAT_EVENT = "com.inspur.ecm.chat";
+const YUNJIA_CHAT_MESSAGE_VERSION = "3.0";
 
 export type ParsedYunjiaTarget =
   | { kind: "user"; userId: string }
@@ -8,8 +9,10 @@ export type ParsedYunjiaTarget =
   | { kind: "direct"; channelId: string };
 
 export type YunjiaDynamicMarkdownStreamStatus = "start" | "continue" | "end";
+export type YunjiaAgentStreamType = "agent/dynamic-markdown" | "agent/thinking";
 
-export type YunjiaDynamicMarkdownChunk = {
+export type YunjiaAgentStreamChunk = {
+  type: YunjiaAgentStreamType;
   channelId: string;
   parent: string;
   roundId: string;
@@ -20,20 +23,32 @@ export type YunjiaDynamicMarkdownChunk = {
   streamStatus: YunjiaDynamicMarkdownStreamStatus;
   enterprise?: string;
   tracer?: string;
+  toUserId?: string;
+  fromUserId?: string;
 };
 
-function buildDynamicMarkdownEventPayload(params: YunjiaDynamicMarkdownChunk): {
+function buildAgentStreamEventPayload(params: YunjiaAgentStreamChunk): {
   headers: { enterprise?: string; tracer?: string };
   action: { method: "post"; path: string };
   body: {
-    type: "agent/dynamic-markdown";
-    parent: string;
-    roundId: string;
-    sessionId: string;
-    streamId: string;
-    chunk: string;
-    chunkIndex: number;
-    streamStatus: YunjiaDynamicMarkdownStreamStatus;
+    message: string;
+    id: string;
+    type: YunjiaAgentStreamType;
+    channel: string;
+    to?: string[];
+    from: {
+      user?: string;
+      enterprise?: string;
+    };
+    content: {
+      parent: string;
+      roundId: string;
+      sessionId: string;
+      streamId: string;
+      chunk: string;
+      chunkIndex: number;
+      streamStatus: YunjiaDynamicMarkdownStreamStatus;
+    };
   };
 } {
   return {
@@ -46,14 +61,24 @@ function buildDynamicMarkdownEventPayload(params: YunjiaDynamicMarkdownChunk): {
       path: `/channel/${params.channelId}/message`,
     },
     body: {
-      type: "agent/dynamic-markdown",
-      parent: params.parent,
-      roundId: params.roundId,
-      sessionId: params.sessionId,
-      streamId: params.streamId,
-      chunk: params.chunk,
-      chunkIndex: params.chunkIndex,
-      streamStatus: params.streamStatus,
+      message: YUNJIA_CHAT_MESSAGE_VERSION,
+      id: "ignored",
+      type: params.type,
+      channel: params.channelId,
+      ...(params.toUserId ? { to: [params.toUserId] } : {}),
+      from: {
+        ...(params.fromUserId ? { user: params.fromUserId } : {}),
+        ...(params.enterprise ? { enterprise: params.enterprise } : {}),
+      },
+      content: {
+        parent: params.parent,
+        roundId: params.roundId,
+        sessionId: params.sessionId,
+        streamId: params.streamId,
+        chunk: params.chunk,
+        chunkIndex: params.chunkIndex,
+        streamStatus: params.streamStatus,
+      },
     },
   };
 }
@@ -92,11 +117,11 @@ async function callTransportWithVariants(params: {
   return "unsupported";
 }
 
-export async function sendDynamicMarkdownChunkToYunjia(params: {
+export async function sendAgentStreamChunkToYunjia(params: {
   sdk: YunjiaChatSdkInstance;
-  chunk: YunjiaDynamicMarkdownChunk;
+  chunk: YunjiaAgentStreamChunk;
 }): Promise<boolean> {
-  const payload = buildDynamicMarkdownEventPayload(params.chunk);
+  const payload = buildAgentStreamEventPayload(params.chunk);
   const eventTuple: [string, typeof payload] = [YUNJIA_CHAT_EVENT, payload];
   const argVariants: unknown[][] = [
     [YUNJIA_CHAT_EVENT, payload],
@@ -129,6 +154,19 @@ export async function sendDynamicMarkdownChunkToYunjia(params: {
     }
   }
   return false;
+}
+
+export async function sendDynamicMarkdownChunkToYunjia(params: {
+  sdk: YunjiaChatSdkInstance;
+  chunk: Omit<YunjiaAgentStreamChunk, "type">;
+}): Promise<boolean> {
+  return await sendAgentStreamChunkToYunjia({
+    sdk: params.sdk,
+    chunk: {
+      type: "agent/dynamic-markdown",
+      ...params.chunk,
+    },
+  });
 }
 
 export function normalizeYunjiaMessagingTarget(target: string): string | undefined {

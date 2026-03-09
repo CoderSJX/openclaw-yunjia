@@ -3,6 +3,7 @@ import {
   looksLikeYunjiaTarget,
   normalizeYunjiaMessagingTarget,
   parseYunjiaTarget,
+  sendAgentStreamChunkToYunjia,
   sendDynamicMarkdownChunkToYunjia,
   sendTextToYunjia,
 } from "./send.js";
@@ -76,6 +77,8 @@ describe("yunjia send helpers", () => {
         streamStatus: "continue",
         enterprise: "9991",
         tracer: "trace-1",
+        toUserId: "1234",
+        fromUserId: "6666",
       },
     });
 
@@ -84,14 +87,70 @@ describe("yunjia send helpers", () => {
       headers: { enterprise: "9991", tracer: "trace-1" },
       action: { method: "post", path: "/channel/1234567890/message" },
       body: {
+        message: "3.0",
+        id: "ignored",
         type: "agent/dynamic-markdown",
+        channel: "1234567890",
+        to: ["1234"],
+        from: { user: "6666", enterprise: "9991" },
+        content: {
+          parent: "866271940418076666",
+          roundId: "round-1",
+          sessionId: "session-1",
+          streamId: "stream-1",
+          chunk: "hello",
+          chunkIndex: 1,
+          streamStatus: "continue",
+        },
+      },
+    });
+  });
+
+  it("sends agent thinking chunks with agent/thinking type", async () => {
+    const emit = vi.fn().mockReturnValue({ ok: true });
+    const sdk = {
+      socket: { emit },
+    } as unknown as YunjiaChatSdkInstance;
+
+    const sent = await sendAgentStreamChunkToYunjia({
+      sdk,
+      chunk: {
+        type: "agent/thinking",
+        channelId: "1234567890",
         parent: "866271940418076666",
         roundId: "round-1",
         sessionId: "session-1",
-        streamId: "stream-1",
-        chunk: "hello",
-        chunkIndex: 1,
+        streamId: "stream-thinking",
+        chunk: "thinking...",
+        chunkIndex: 2,
         streamStatus: "continue",
+        enterprise: "9991",
+        tracer: "trace-2",
+        toUserId: "1234",
+        fromUserId: "6666",
+      },
+    });
+
+    expect(sent).toBe(true);
+    expect(emit).toHaveBeenCalledWith("com.inspur.ecm.chat", {
+      headers: { enterprise: "9991", tracer: "trace-2" },
+      action: { method: "post", path: "/channel/1234567890/message" },
+      body: {
+        message: "3.0",
+        id: "ignored",
+        type: "agent/thinking",
+        channel: "1234567890",
+        to: ["1234"],
+        from: { user: "6666", enterprise: "9991" },
+        content: {
+          parent: "866271940418076666",
+          roundId: "round-1",
+          sessionId: "session-1",
+          streamId: "stream-thinking",
+          chunk: "thinking...",
+          chunkIndex: 2,
+          streamStatus: "continue",
+        },
       },
     });
   });
